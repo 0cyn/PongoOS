@@ -177,6 +177,9 @@ __attribute__((noinline)) void pongo_entry_cached(void)
     // Enable serial TX
     serial_early_init();
 
+    // Enable Dockchannel TX
+    dockchannel_init();
+
     // Set up IRQ handling
     pongo_reinstall_vbar();
 

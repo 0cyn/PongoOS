@@ -82,8 +82,12 @@ ssize_t _write_r(struct _reent *reent, int file, const void *ptr, size_t len)
     const char *str = ptr;
     for(i = 0; i < len; i++)
     {
-        if (str[i] == '\0') serial_putc('\r');
+        if (str[i] == '\0') {
+            serial_putc('\r');
+            dockchannel_putc('r');
+        }
         serial_putc(str[i]);
+        dockchannel_putc(str[i]);
         screen_putc(str[i]);
 
         if(file != 1) continue;

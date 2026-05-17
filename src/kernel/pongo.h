@@ -50,6 +50,7 @@
 #include "mipi/mipi.h"
 #include "aes/aes.h"
 #include "sep/sep.h"
+#include "dockchannel/dockchannel.h"
 #endif
 
 // XXX: the includes here pull in stuff we historically declared in pongo.h
