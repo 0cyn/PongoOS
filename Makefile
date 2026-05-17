@@ -117,7 +117,7 @@ PONGO_CC_FLAGS              ?= -Os -moutline -DPONGO_VERSION='"$(PONGO_VERSION)"
 
 # KPF options
 KPF_LD_FLAGS                ?= -Wl,-kext $(KPF_LDFLAGS)
-KPF_CC_FLAGS                ?= -O3 -DCHECKRA1N_VERSION='"$(CHECKRA1N_VERSION)"' -I$(INC) -Iapple-include -I$(SRC)/kernel -I$(SRC)/drivers -I$(SRC)/lib $(KPF_CFLAGS) $(KPF_LD_FLAGS)
+KPF_CC_FLAGS                ?= -O3 -fvisibility=hidden -Dglobl=private_extern -DCHECKRA1N_VERSION='"$(CHECKRA1N_VERSION)"' -I$(INC) -Iapple-include -I$(SRC)/kernel -I$(SRC)/drivers -I$(SRC)/lib $(KPF_CFLAGS) $(KPF_LD_FLAGS)
 
 PONGO_C                     := $(wildcard $(SRC)/*/*.S) $(wildcard $(SRC)/*/*/*.S) $(wildcard $(SRC)/*/*.c) $(wildcard $(SRC)/*/*/*.c) $(wildcard $(SRC)/*/*/*/*.c)
 PONGO_H                     := $(wildcard $(SRC)/*/*.h) $(wildcard $(SRC)/*/*/*.h) $(wildcard $(SRC)/*/*/*/*.h)
@@ -141,6 +141,7 @@ $(BUILD)/Pongo: Makefile $(PONGO_C) $(PONGO_H) $(LIB)/fixup/libc.a | $(BUILD)
 
 $(BUILD)/checkra1n-kpf-pongo: Makefile $(KPF_C) $(KPF_H) $(PONGO_H) $(LIB)/fixup/libc.a | $(BUILD)
 	$(EMBEDDED_CC) -o $@ $(KPF_C) $(EMBEDDED_CC_FLAGS) $(KPF_CC_FLAGS)
+	strip -x $@
 
 $(BUILD)/vmacho: Makefile $(AUX)/vmacho.c | $(BUILD)
 	$(CC) -Wall -O3 -o $@ $(AUX)/vmacho.c $(CFLAGS)

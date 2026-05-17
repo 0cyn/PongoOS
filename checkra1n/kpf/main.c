@@ -2981,6 +2981,7 @@ static void palera1n_flags_cmd(const char *cmd, char *args)
     set_flags(args, &palera1n_flags, "palera1n_flags");
 }
 
+__attribute__((visibility("default")))
 void module_entry(void)
 {
     puts("");
@@ -3011,8 +3012,11 @@ void module_entry(void)
     command_register("kpf", "running checkra1n-kpf without booting (use bootux afterwards)", (void*)kpf_cmd);
     command_register("overlay", "loads an overlay disk image", kpf_overlay_cmd);
 }
+
+__attribute__((visibility("default")))
 const char *module_name = "checkra1n-kpf2-12.0,16.4";
 
+__attribute__((visibility("default")))
 struct pongo_exports exported_symbols[] =
 {
     { .name = NULL, .value = NULL },
