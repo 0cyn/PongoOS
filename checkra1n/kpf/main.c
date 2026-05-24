@@ -292,6 +292,26 @@ void kpf_mac_mount_patch(xnu_pf_patchset_t* xnu_text_exec_patchset) {
     matches[0] = 0x1283ffc9; // movz w/x9, 0x1ffe/-0x1fff
     masks[0] = 0x3fffffff;
     xnu_pf_maskmatch(xnu_text_exec_patchset, "mac_mount_patch2", matches, masks, sizeof(matches)/sizeof(uint64_t), false, (void*)kpf_mac_mount_callback);
+
+    // On tvOS 26.4, match where it checks for non-negative size in some input
+    // /x 080084928803088b1f0940b108000054000080d2c0028052:ffffffffffffffffffffffff1f0000ffe0ffffffe0ffffff
+    uint64_t matches_264[] = {
+        0x92840008, // mov w8, #-0x2001
+        0x8b080388, // add x8, x28, x8
+        0xb140091f, // cmn w8, #0x2, lsl 12
+        0x54000008, // b.hi
+        0xd2800000, // mov xN, #0x0
+        0x528002c0, // mov wM, #0x16
+    };
+    uint64_t masks_264[] = {
+        0xffffffff,
+        0xffffffff,
+        0xffffffff,
+        0xff00001f,
+        0xffffffe0,
+        0xffffffe0,
+    };
+    xnu_pf_maskmatch(xnu_text_exec_patchset, "mac_mount_patch3", matches_264, masks_264, sizeof(matches_264)/sizeof(uint64_t), false, (void*)kpf_mac_mount_callback);
 }
 
 bool dounmount_found;
