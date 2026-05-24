@@ -342,6 +342,39 @@ static void kpf_convert_port_to_map_patch(xnu_pf_patchset_t *xnu_text_exec_patch
         0xff00001e,
     };
     xnu_pf_maskmatch(xnu_text_exec_patchset, "convert_port_to_map", matches_260, masks_260, sizeof(matches_260)/sizeof(uint64_t), false, (void*)kpf_convert_port_to_map_callback_260);
+
+    // Observed on tvOS 26.4: the pmap load comes from offset 0x58, while the
+    // surrounding control-flow shape stays the same:
+    //
+    // 0xfffffff00723e2ec      88010036       tbz w8, 0, 0xfffffff00723e31c
+    // 0xfffffff00723e2f0      141440f9       ldr x20, [x0, 0x28]
+    // 0xfffffff00723e2f4      882e40f9       ldr x8, [x20, 0x58]
+    // 0xfffffff00723e2f8      c93d00d0       adrp x9, 0xfffffff0079f8000
+    // 0xfffffff00723e2fc      29010991       add x9, x9, 0x240
+    // 0xfffffff00723e300      1f0109eb       cmp x8, x9
+    // 0xfffffff00723e304      80020054       b.eq 0xfffffff00723e354
+    uint64_t matches_264[] =
+    {
+        0x36000000, // tbz w{0-15}, ...
+        0xf9400000, // ldr xN, [xM, {0x0-0x78}]
+        0xf9402800, // ldr xN, [xM, {0x50|0x58}]
+        0x90000000, // adrp
+        0x91000000, // add
+        0xeb00001f, // cmp
+        0x54000000, // b.ne / b.eq
+    };
+
+    uint64_t masks_264[] =
+    {
+        0xfff80010,
+        0xffffc000,
+        0xfffff800,
+        0x9f000000,
+        0xffc00000,
+        0xffe0fc1f,
+        0xff00001e,
+    };
+    xnu_pf_maskmatch(xnu_text_exec_patchset, "convert_port_to_map", matches_264, masks_264, sizeof(matches_264)/sizeof(uint64_t), false, (void*)kpf_convert_port_to_map_callback_260);
 }
 
 static bool found_task_conversion_eval_ldr = false;
@@ -446,6 +479,10 @@ static bool kpf_task_conversion_eval_callback_common(uint32_t *opcode_stream, bo
         }
 
         // Find ldr/cmp pattern
+        uint32_t ldr_reg = ldr[1] & 0x1f;
+        bool cmp_matches =
+            ((ldr[2] & 0xffe0ffff) == (0xeb00001f | (ldr_reg << 5))) ||
+            ((ldr[2] & 0xfffffc1f) == (0xeb00001f | (ldr_reg << 16)));
         if
         (!(
             (
@@ -454,7 +491,7 @@ static bool kpf_task_conversion_eval_callback_common(uint32_t *opcode_stream, bo
                 ((ldr[0] & 0x9f000000) == 0x90000000 && (ldr[1] & 0xffc003e0) == (0xf9400000 | ((ldr[0] & 0x1f) << 5))) // adrp + ldr
             )
             &&
-            ((ldr[2] & 0xffe0ffff) == (0xeb00001f | ((ldr[1] & 0x1f) << 5))) // cmp
+            cmp_matches
         ))
         {
             continue;
