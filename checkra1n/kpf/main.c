@@ -2322,7 +2322,7 @@ void kpf_md0oncores_patch(xnu_pf_patchset_t* patchset)
     };
     xnu_pf_maskmatch(patchset, "copyout_callsites", copyout_matches, copyout_masks, sizeof(copyout_matches)/sizeof(uint64_t), false, (void*)copyout_callsites_callback);
 
-    // iOS 18.4+
+    // iOS 18.4+ (necp_client_copy_interface)
     // /x 820e805200000094f00300aa00000034:ffffffff000000fcf0ffffff1f0000ff
 
     uint64_t copyout_matches2[] = {
@@ -2340,6 +2340,27 @@ void kpf_md0oncores_patch(xnu_pf_patchset_t* patchset)
     };
 
     xnu_pf_maskmatch(patchset, "copyout_callsites", copyout_matches2, copyout_masks2, sizeof(copyout_matches)/sizeof(uint64_t), false, (void*)copyout_callsites_callback);
+
+    // tvOS 26.0+ (necp_client_get_flow_statistics)
+    // In HomePod software 27.0, the necp_client_copy_interface function now have inconvenient
+    // codegen due to added checks. The convenient pattern can still be found in other places,
+    // so we reuse the pattern but with a different size
+    // /x 8235805200000094f00300aa00000034:ffffffff000000fcf0ffffff1f0000ff
+    uint64_t copyout_matches_260[] = {
+        0x52803582, // mov w2, #0x1ac
+        0x94000000, // bl copyout
+        0xaa0003f0, // mov x{16-31}, x0
+        0x34000000, // cbz w0, ...
+    };
+
+    uint64_t copyout_masks_260[] = {
+        0xffffffff,
+        0xfc000000,
+        0xfffffff0,
+        0xff00001f,
+    };
+
+    xnu_pf_maskmatch(patchset, "copyout_callsites", copyout_matches_260, copyout_masks_260, sizeof(copyout_matches_260)/sizeof(uint64_t), false, (void*)copyout_callsites_callback);
 }
 
 static uint32_t shellcode_count;
