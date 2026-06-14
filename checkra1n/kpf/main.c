@@ -2133,11 +2133,11 @@ bool load_init_program_at_path_callback(struct xnu_pf_patch *patch, uint32_t *op
     
     reg = ldr[0] & 0x1f;
     
-    uint32_t *ldrh = find_next_insn(ldr, 10, 0x79400000 | (reg << 5), 0xffc003e0);
-    if(ldrh)
+    uint32_t *ldr_b_h = find_next_insn(ldr, 10, 0x39400000 | (reg << 5), 0xbfc003e0);
+    if(ldr_b_h)
     {
-        // 1st: search ldrh
-        vm_map_page_size_off = ((ldrh[0] >> 11) & 0x7FF) << 2;
+        // 1st: search ldr{b,h}
+        vm_map_page_size_off = ((ldr_b_h[0] >> 11) & 0x7FF) << 2;
         printf("KPF: Found vm_map_page_size offset at 0x%x\n", vm_map_page_size_off);
     }
     else
