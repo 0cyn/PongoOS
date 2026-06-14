@@ -353,6 +353,7 @@ static void kpf_convert_port_to_map_patch(xnu_pf_patchset_t *xnu_text_exec_patch
     // 0xfffffff00723e2fc      29010991       add x9, x9, 0x240
     // 0xfffffff00723e300      1f0109eb       cmp x8, x9
     // 0xfffffff00723e304      80020054       b.eq 0xfffffff00723e354
+    // /x 00000036000040f9002840f900000090000000911f0000eb00000054:1000f8ff00c0ffff00f8ffff0000009f0000c0ff1ffce0ff1e0000ff
     uint64_t matches_264[] =
     {
         0x36000000, // tbz w{0-15}, ...
@@ -375,6 +376,38 @@ static void kpf_convert_port_to_map_patch(xnu_pf_patchset_t *xnu_text_exec_patch
         0xff00001e,
     };
     xnu_pf_maskmatch(xnu_text_exec_patchset, "convert_port_to_map", matches_264, masks_264, sizeof(matches_264)/sizeof(uint64_t), false, (void*)kpf_convert_port_to_map_callback_260);
+
+    // On HomePod Software 27.0, the codegen changed where the function
+    // ends with panic instead of return, moving the tbz forwards, and
+    // now we match the code after the b.eq instead.
+    // 0xfffffff0071fcc90      40010054       b.eq 0xfffffff0071fccb8
+    // 0xfffffff0071fcc94      e00308aa       mov x0, x8
+    // 0xfffffff0071fcc98      39440594       bl 0xfffffff00734dd7c
+    // 0xfffffff0071fcc9c      e00314aa       mov x0, x20
+    // 0xfffffff0071fcca0      8aef0294       bl 0xfffffff0072b8ac8
+    // 0xfffffff0071fcca4      680a4039       ldrb w8, [x19, 2]
+    // 0xfffffff0071fcca8      a8fd0736       tbz w8, 0, 0xfffffff0071fcc5c
+    // /x 00000054e00300aa00000094e00310aa00000094000a403900000036:1f0000fffffff0ff000000fcfffff0ff000000fc10feffff1000f8ff
+    uint64_t matches_270[] = {
+        0x54000000, // b.eq
+        0xaa0003e0, // mov x0, x{0-15}
+        0x94000000, // bl
+        0xaa1003e0, // mov x0, x{16-31}
+        0x94000000, // bl
+        0x39400a00, // ldrb w{0-15}, [x{16-31}, #2]
+        0x36000000, // tbz w8, #0, ...
+    };
+
+    uint64_t masks_270[] = {
+        0xff00001f,
+        0xfff0ffff,
+        0xfc000000,
+        0xfff0ffff,
+        0xfc000000,
+        0xfffffe10,
+        0xfff80010,
+    };
+    xnu_pf_maskmatch(xnu_text_exec_patchset, "convert_port_to_map", matches_270, masks_270, sizeof(matches_270)/sizeof(uint64_t), false, (void*)kpf_convert_port_to_map_callback);
 }
 
 static bool found_task_conversion_eval_ldr = false;
