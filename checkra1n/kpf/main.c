@@ -462,7 +462,7 @@ static bool kpf_vm_map_protect_callback(uint32_t *opcode_stream)
     found_vm_map_protect = true;
     puts("KPF: Found vm_map_protect");
 
-    uint32_t *tbz = find_next_insn(opcode_stream, 8, 0x36480000, 0xfef80010); // tb[n]z w{0-15}, 0x...
+    uint32_t *tbz = find_next_insn(opcode_stream, 8, 0x36480000, 0xfef80010); // tb[n]z w{0-15}, #9, 0x...
     if(!tbz)
     {
         panic("vm_map_protect: failed to find tb[n]z");
@@ -562,6 +562,20 @@ static bool kpf_vm_map_protect_inline(struct xnu_pf_patch *patch, uint32_t *opco
     }
     opcode_stream[idx] = NOP;
     return kpf_vm_map_protect_callback(opcode_stream + idx + 1);
+}
+
+static int kpf_vm_map_protect_270(struct xnu_pf_patch *patch, uint32_t *opcode_stream)
+{
+    if(found_vm_map_protect)
+    {
+        panic("vm_map_protect: found twice");
+    }
+    found_vm_map_protect = true;
+    puts("KPF: Found vm_map_protect");
+
+    opcode_stream[0] = NOP;
+
+    return true;
 }
 
 static void kpf_vm_map_protect_patch(xnu_pf_patchset_t* xnu_text_exec_patchset)
@@ -699,6 +713,26 @@ static void kpf_vm_map_protect_patch(xnu_pf_patchset_t* xnu_text_exec_patchset)
         0xfffffe10,
     };
     xnu_pf_maskmatch(xnu_text_exec_patchset, "vm_map_protect", matches_inline, masks_inline, sizeof(matches_inline)/sizeof(uint64_t), false, (void*)kpf_vm_map_protect_inline);
+
+    uint64_t matches_270[] = {
+        0x37280000,
+        0x52800000,
+        0x14000000,
+        0x37100000,
+        0x52800000,
+        0x36080000,
+    };
+
+    uint64_t masks_270[] = {
+        0xfff80000,
+        0xffffffff,
+        0xfc000000,
+        0xfff80000,
+        0xffffffff,
+        0xfff80000,
+    };
+
+    xnu_pf_maskmatch(xnu_text_exec_patchset, "vm_map_protect", matches_270, masks_270, sizeof(matches_270)/sizeof(uint64_t), false, (void*)kpf_vm_map_protect_270);
 }
 
 bool found_vm_fault_enter;
