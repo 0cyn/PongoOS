@@ -2092,14 +2092,14 @@ bool load_init_program_at_path_callback(struct xnu_pf_patch *patch, uint32_t *op
     if(!tpidr_el1) return false;
     uint32_t reg = tpidr_el1[0] & 0x1f;
     
-    uint32_t *ldr = find_next_insn(tpidr_el1, 10, 0xf9400000 | (reg << 5), 0xffc000e0 | (reg << 5)); // search ldr xM, [xN, #xxx]
+    uint32_t *ldr = find_next_insn(tpidr_el1, 10, 0xf9400000 | (reg << 5), 0xffc003e0); // search ldr xM, [xN, #xxx]
     if(!ldr) return false;
     current_map_off = ((ldr[0] >> 10) & 0xfff) << 3;
     printf("KPF: Found current_map_offset at 0x%x\n", current_map_off);
     
     reg = ldr[0] & 0x1f;
     
-    uint32_t *ldrh = find_next_insn(ldr, 10, 0x79400000 | (reg << 5), 0xffc000e0 | (reg << 5));
+    uint32_t *ldrh = find_next_insn(ldr, 10, 0x79400000 | (reg << 5), 0xffc003e0);
     if(ldrh)
     {
         // 1st: search ldrh
@@ -2109,7 +2109,7 @@ bool load_init_program_at_path_callback(struct xnu_pf_patch *patch, uint32_t *op
     else
     {
         // 2nd: xnu-8019: search add
-        uint32_t *add = find_next_insn(ldr, 10, 0x91000000 | (reg << 5), 0xffc000e0 | (reg << 5));
+        uint32_t *add = find_next_insn(ldr, 10, 0x91000000 | (reg << 5), 0xffc003e0);
         if(!add) return false;
         vm_map_page_size_off = (add[0] >> 10) & 0xfff;
         printf("KPF: Found vm_map_page_size offset at 0x%x\n", vm_map_page_size_off);
