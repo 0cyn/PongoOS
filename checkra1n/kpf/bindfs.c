@@ -175,10 +175,15 @@ static bool kpf_shared_region_root_dir_callback(struct xnu_pf_patch *patch, uint
         return false;
     }
 
-    // Then it's possible there's a load to a high reg from the stack
+    // Then we can have either:
+    // 1. a load to a high reg from the stack
+    // 2. a mov between two high regs (seen on HomePod software 27.0)
     uint32_t *bcond = cmp + 1;
     op = *bcond;
-    if((op & 0xffc003f0) == 0xf94003f0) // ldr x{16-31}, [sp, 0x...]
+    if(
+        ((op & 0xffc003f0) == 0xf94003f0) ||  // ldr x{16-31}, [sp, 0x...]
+        (op & 0xfff0fff0) == 0xaa1003f0       // mov x{16-31}, x{16-31} 
+    )
     {
         op = *++bcond;
     }
