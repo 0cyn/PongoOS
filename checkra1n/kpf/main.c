@@ -1146,7 +1146,7 @@ bool kpf_apfs_patches_rename(struct xnu_pf_patch* patch, uint32_t* opcode_stream
         return false;
     
     // Resource fork part 2 (bridgeOS 10)
-    if (find_next_insn(opcode_stream, 10, 0x90000004, 0x9f00001f)) // adrp x4, ...
+    if (find_next_insn(opcode_stream, 10, 0x90000000, 0x9f000018)) // adrp x{0-7}, ...
         return false;
 
     if (found_apfs_rename)
