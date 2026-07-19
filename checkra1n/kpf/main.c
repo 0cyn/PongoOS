@@ -1898,7 +1898,6 @@ void kpf_vnop_rootvp_auth_patch(xnu_pf_patchset_t* patchset) {
     xnu_pf_maskmatch(patchset, "vnop_rootvp_auth", matches, masks, sizeof(masks)/sizeof(uint64_t), true, (void*)vnop_rootvp_auth_callback);
 }
 
-#if 0
 bool root_livefs_callback(struct xnu_pf_patch *patch, uint32_t *opcode_stream) {
     puts("KPF: Found root_livefs");
     opcode_stream[2] = NOP;
@@ -1918,7 +1917,6 @@ void kpf_root_livefs_patch(xnu_pf_patchset_t* patchset) {
     };
     xnu_pf_maskmatch(patchset, "root_livefs", matches, masks, sizeof(masks)/sizeof(uint64_t), true, (void*)root_livefs_callback);
 }
-#endif
 
 // this is copied bakera1n 16.2+ code
 uint32_t* proc_selfname = NULL;
@@ -2535,7 +2533,45 @@ static void kpf_cmd(void)
             panic("livefs panic doesn't match expected Darwin version");
 #endif
 
-    if (livefs_string_match)
+    const char optional_arv_strings[] = "/filesystems\0arv";
+    const char *optional_arv_strings_match = apfs_text_cstring_range ? memmem(apfs_text_cstring_range->cacheable_base, apfs_text_cstring_range->size, optional_arv_strings, sizeof(optional_arv_strings)) : NULL;
+    if(!optional_arv_strings_match) optional_arv_strings_match = memmem(text_cstring_range->cacheable_base, text_cstring_range->size, optional_arv_strings, sizeof(optional_arv_strings));
+
+#ifdef DEV_BUILD
+    // tvOS 18.2 beta 1 onwards
+    if ((optional_arv_strings_match != NULL) != (xnu_platform() == PLATFORM_TVOS && ((gKernelVersion.darwinMajor >= 24 && gKernelVersion.darwinMinor >= 2) || (gKernelVersion.darwinMajor >= 25))))
+        panic("Optional arv doesn't match expected Darwin version");
+#endif
+
+    if (!livefs_string_match && optional_arv_strings_match)
+        panic("Inconsistency between optional ARV and livefs string detected");
+
+    bool is_ssv_required = livefs_string_match && !optional_arv_strings_match;
+#if !defined(KPF_TEST)
+    if (optional_arv_strings_match) {
+        size_t arv_len = 0;
+
+        dt_node_t* fs = dt_find(gDeviceTree, "filesystems");
+        if (!fs)
+            goto arv_out;
+
+        uint32_t* arv = dt_prop(fs, "arv", &arv_len);
+        if (!arv)
+            goto arv_out;
+
+        if (arv && *arv) {
+#ifdef DEV_BUILD
+            // None
+            panic("Optional ARV enabled doesn't match expected Darwin version");
+#endif
+            is_ssv_required = true;
+            goto arv_out;
+        }
+    }
+arv_out:
+#endif
+
+    if (is_ssv_required)
         palera1n_flags |= palerain_option_ssv;
 
     if (!apfs_vfsop_mount_string_match)
@@ -2712,16 +2748,15 @@ static void kpf_cmd(void)
         }
     }
 
-    kpf_apfs_patches(apfs_patchset, livefs_string_match != NULL, apfs_vfsop_mount_string_match != NULL, ipad6_ipados18);
-#if 0
-    if(livefs_string_match)
+    kpf_apfs_patches(apfs_patchset, is_ssv_required, apfs_vfsop_mount_string_match != NULL, ipad6_ipados18);
+
+    if (!(palera1n_flags & palerain_option_ssv) && livefs_string_match)
     {
         kpf_root_livefs_patch(apfs_patchset);
     }
-#endif
 
     if (!(palera1n_flags & palerain_option_rootful) && !(palera1n_flags & palerain_option_rootless)) {
-        if (livefs_string_match) {
+        if (palera1n_flags & palerain_option_ssv) {
             palera1n_flags |= palerain_option_rootless;
         } else {
             palera1n_flags |= palerain_option_rootful;
@@ -3005,7 +3040,7 @@ static void kpf_cmd(void)
         *repatch_zalloc_ro_mut = delta;
     }
 
-    if(!livefs_string_match) // Only use underlying fs on union mounts
+    if(!(palera1n_flags & palerain_option_ssv)) // Only use underlying fs on union mounts
     {
         char *snapshotString = (char*)memmem((unsigned char *)text_cstring_range->cacheable_base, text_cstring_range->size, (uint8_t *)"com.apple.os.update-", strlen("com.apple.os.update-"));
         if (!snapshotString) snapshotString = (char*)memmem((unsigned char *)plk_text_range->cacheable_base, plk_text_range->size, (uint8_t *)"com.apple.os.update-", strlen("com.apple.os.update-"));
