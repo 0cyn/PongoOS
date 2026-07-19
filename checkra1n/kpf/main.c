@@ -1898,6 +1898,7 @@ void kpf_vnop_rootvp_auth_patch(xnu_pf_patchset_t* patchset) {
     xnu_pf_maskmatch(patchset, "vnop_rootvp_auth", matches, masks, sizeof(masks)/sizeof(uint64_t), true, (void*)vnop_rootvp_auth_callback);
 }
 
+#if 0
 bool root_livefs_callback(struct xnu_pf_patch *patch, uint32_t *opcode_stream) {
     puts("KPF: Found root_livefs");
     opcode_stream[2] = NOP;
@@ -1917,6 +1918,7 @@ void kpf_root_livefs_patch(xnu_pf_patchset_t* patchset) {
     };
     xnu_pf_maskmatch(patchset, "root_livefs", matches, masks, sizeof(masks)/sizeof(uint64_t), true, (void*)root_livefs_callback);
 }
+#endif
 
 // this is copied bakera1n 16.2+ code
 uint32_t* proc_selfname = NULL;
@@ -2750,10 +2752,12 @@ arv_out:
 
     kpf_apfs_patches(apfs_patchset, is_ssv_required, apfs_vfsop_mount_string_match != NULL, ipad6_ipados18);
 
+#if 0
     if (!(palera1n_flags & palerain_option_ssv) && livefs_string_match)
     {
         kpf_root_livefs_patch(apfs_patchset);
     }
+#endif
 
     if (!(palera1n_flags & palerain_option_rootful) && !(palera1n_flags & palerain_option_rootless)) {
         if (palera1n_flags & palerain_option_ssv) {
