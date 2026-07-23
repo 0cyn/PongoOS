@@ -280,7 +280,7 @@ void map_full_ram(uint64_t phys_off, uint64_t phys_size) {
     flush_tlb();
 }
 uint64_t gPongoSlide;
-void lowlevel_setup(uint64_t phys_off, uint64_t phys_size)
+void lowlevel_setup(uint64_t sram_base, uint64_t phys_off, uint64_t phys_size)
 {
     if (is_16k()) {
         tt_bits = 11;
@@ -308,12 +308,13 @@ void lowlevel_setup(uint64_t phys_off, uint64_t phys_size)
 
     ttbr0 = ttb_alloc();
     ttbr1 = ttb_alloc();
-    map_range_noflush_rwx(0x180000000, 0x180000000, 0x80000, 2, 0, false);
-    map_range_noflush_rw(0x200000000, 0x200000000, 0x100000000, 2, 0, false);
+    map_range_noflush_rwx(sram_base, sram_base, 0x80000, 2, 0, false); //sram
+    map_range_noflush_rw(0x200000000, 0x200000000, 0x100000000, 2, 0, false); // mmio
     phys_off += (pgsz-1);
     phys_off &= ~(pgsz-1);
     map_range_noflush_rw(kCacheableView + phys_off, 0x800000000 + phys_off, phys_size, 3, 1, false);
     map_range_noflush_rwx(0x800000000ULL + phys_off, 0x800000000 + phys_off, phys_size, 2, 0, false);
+
     // TLB flush is done by enable_mmu_el1
 
     map_range_noflush_rx(0x100000000ULL, pongo_base, pongo_text_size, 3, 1, false);
@@ -330,9 +331,9 @@ void lowlevel_setup(uint64_t phys_off, uint64_t phys_size)
     kernel_vm_space.ttbr0 = (uint64_t)ttbr0;
     kernel_vm_space.ttbr1 = (uint64_t)ttbr1;
 }
-void lowlevel_set_identity(void)
+void lowlevel_set_identity(uint64_t sram_base)
 {
-    map_range_noflush_rwx(0x180000000, 0x180000000, 0x80000, 2, 0, true);
+    map_range_noflush_rwx(sram_base, sram_base, 0x80000, 2, 0, true);
     map_range_noflush_rwx(0x800000000ULL + g_phys_off, 0x800000000 + g_phys_off, ram_phys_size, 2, 0, true);
     flush_tlb();
 }

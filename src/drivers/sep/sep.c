@@ -28,8 +28,10 @@
 #include <img4/img4.h>
 #include <fuse/fuse.h>
 #include <recfg/recfg_soc.h>
+#include <dart/dart.h>
 
 #define IRQ_T8015_SEP_INBOX_NOT_EMPTY 0x79
+#define IRQ_T8030_SEP_INBOX_NOT_EMPTY 0xb4
 // #define SEP_DEBUG
 
 struct mailbox_registers32 {
@@ -78,9 +80,48 @@ union sep_message_u {
 };
 
 static dt_node_t *gSEPDev;
+static dart_dev_t *gSEPDART;
 static bool gXNUExpectsBooted;
 static void *gSEPFW; // VA
 static uint64_t gSEPFWLen;
+
+#define SEP_DART_PAGE_SIZE 0x4000
+
+static bool sep_dart_map_buffer(const void *buffer, size_t size,
+                                uintptr_t *map_base, size_t *map_size)
+{
+    *map_base = 0;
+    *map_size = 0;
+    if(!gSEPDART)
+    {
+        return true;
+    }
+
+    uintptr_t paddr = vatophys((uint64_t)buffer);
+    if(!size || paddr > UINTPTR_MAX - (SEP_DART_PAGE_SIZE - 1) ||
+       size > UINTPTR_MAX - paddr - (SEP_DART_PAGE_SIZE - 1))
+    {
+        return false;
+    }
+    uintptr_t start = paddr & ~(SEP_DART_PAGE_SIZE - 1);
+    uintptr_t end = (paddr + size + SEP_DART_PAGE_SIZE - 1) &
+                    ~(SEP_DART_PAGE_SIZE - 1);
+    if(end <= start || dart_map(gSEPDART, start, start, end - start) != 0)
+    {
+        return false;
+    }
+    *map_base = start;
+    *map_size = end - start;
+    return true;
+}
+
+static void sep_dart_unmap_buffer(uintptr_t map_base, size_t map_size)
+{
+    if(gSEPDART && map_size)
+    {
+        dart_unmap(gSEPDART, map_base, map_size);
+    }
+}
 
 static volatile struct mailbox_registers32 * mailboxregs32;
 static volatile struct mailbox_registers64 * mailboxregs64;
@@ -235,7 +276,7 @@ void sep_handle_msg_from_sep(union sep_message_u msg) {
         SEP_PANIC_PTR++;
         SEP_PANIC_CNT += 8;
         if ((socnum < 0x8015 && SEP_PANIC_CNT == 64) || // till A10 they send 64 bytes
-            (socnum == 0x8015 && SEP_PANIC_CNT == 400)) { // on A11 we seem to get 400
+            (is_sep64 && SEP_PANIC_CNT == sizeof(SEP_PANIC))) { // on A11+ we seem to get 400
             void hexdump(void *mem, unsigned int len);
             hexdump(&SEP_PANIC,SEP_PANIC_CNT);
             panic("SEPROM paniced; RIP");
@@ -365,18 +406,24 @@ void seprom_boot_tz0_async(void) {
     }
     enable_interrupts();
 }
-void seprom_load_sepos(void *firmware, char mode) {
-    if(socnum == 0x8015) {
+void seprom_load_sepos(void *firmware, size_t size, char mode) {
+    uintptr_t map_base;
+    size_t map_size;
+    if(!sep_dart_map_buffer(firmware, size, &map_base, &map_size)) {
+        panic("SEP: failed to map firmware");
+    }
+    if(is_sep64) {
         recfg_soc_lock();
     }
     disable_interrupts();
     seprom_execute_opcode(6, mode, vatophys((uint64_t) (firmware)) >> 12);
     event_wait_asserted(&sep_msg_event);
+    sep_dart_unmap_buffer(map_base, map_size);
 }
 void seprom_fwload(void) {
     // We clear this here to account for "sep auto" followed by manual invocation
     is_waiting_to_boot = 0;
-    seprom_load_sepos(gSEPFW, 0);
+    seprom_load_sepos(gSEPFW, gSEPFWLen, 0);
 }
 asm(".text\n"
     ".align 2\n"
@@ -459,6 +506,12 @@ static void sep_pwned_boot_auto(void) {
         // TODO: T2 BPR?
         case 0x8015:
             bpr = 0x2352d0030;
+            break;
+        case 0x8020:
+            bpr = 0x23d2d0030;
+            break;
+        case 0x8030:
+            bpr = 0x23d2d0030;
             break;
     }
     if(bpr && (*(volatile uint32_t*)bpr & 0x1))
@@ -881,17 +934,23 @@ out:
         free(replay_layout);
 }
 
-void seprom_load_art(void* art, char mode) {
+void seprom_load_art(void* art, size_t size, char mode) {
+    uintptr_t map_base;
+    size_t map_size;
+    if(!sep_dart_map_buffer(art, size, &map_base, &map_size)) {
+        panic("SEP: failed to map ART");
+    }
     disable_interrupts();
     seprom_execute_opcode(6, mode, (vatophys((uint64_t)art)) >> 12);
     event_wait_asserted(&sep_msg_event);
+    sep_dart_unmap_buffer(map_base, map_size);
 }
 void seprom_artload(void) {
     if (!loader_xfer_recv_count) {
         iprintf("please upload an ART before issuing this command\n");
         return;
     }
-    seprom_load_art((void*)loader_xfer_recv_data, 0);
+    seprom_load_art((void*)loader_xfer_recv_data, loader_xfer_recv_count, 0);
 }
 void seprom_resume(void) {
     disable_interrupts();
@@ -1119,6 +1178,8 @@ void sep_auto(const char* cmd, char* args)
         default:
             iprintf("No need to pwn SEP, just booting...\n");
         case 0x8015: // Lowkey skip the message :|
+        case 0x8020:
+        case 0x8030:
             tz_lockdown();
             seprom_boot_tz0();
             is_waiting_to_boot = 1;
@@ -1181,6 +1242,15 @@ void sep_setup(void)
 {
     gSEPDev = dt_get("/arm-io/sep");
 
+    if(socnum == 0x8020 || socnum == 0x8030)
+    {
+        gSEPDART = dart_init_from_dt(gSEPDev, 0, false);
+        if(!gSEPDART)
+        {
+            panic("SEP: failed to initialize DART");
+        }
+    }
+
     size_t len = 0;
     uint32_t *xnu_wants_booted = dt_prop(gSEPDev, "sepfw-booted", &len);
     gXNUExpectsBooted = xnu_wants_booted && len == 4 && *xnu_wants_booted != 0;
@@ -1198,7 +1268,7 @@ void sep_setup(void)
     if(len < 16) panic("sep_setup: sep reg prop too short");
 
     uint64_t sep_reg_u = reg[0] + gIOBase;
-    if (socnum == 0x8015) {
+    if (socnum == 0x8015 || socnum == 0x8020 || socnum == 0x8030) {
         mailboxregs64 = (volatile struct mailbox_registers64 *)(sep_reg_u + 0x8100);
         is_sep64 = 1;
     } else {
@@ -1213,9 +1283,18 @@ void sep_setup(void)
     for (int i=0; i < len/4; i++) {
         // XXX: we skip binding the inbox_empty irq on t8015, because it
         // keeps firing and I don't know why, nor do I think we need it(?)
-        if (is_sep64 && ints[i] == IRQ_T8015_SEP_INBOX_NOT_EMPTY) {
-            continue;
-        }
+    	switch (socnum)
+    	{
+    	case 0x8015:
+    		if (ints[i] == IRQ_T8015_SEP_INBOX_NOT_EMPTY)
+    			continue;
+    		break;
+    	case 0x8030:
+    		if (ints[i] == IRQ_T8030_SEP_INBOX_NOT_EMPTY)
+    			continue;
+    		break;
+    	}
+
         task_bind_to_irq(sep_irq_task, ints[i]);
     }
 
@@ -1238,4 +1317,9 @@ void sep_teardown(void) {
         mailboxregs32->dis_int = 0x1000;
     }
     __asm__ volatile("dsb sy");
+    if(gSEPDART)
+    {
+        dart_shutdown(gSEPDART);
+        gSEPDART = NULL;
+    }
 }

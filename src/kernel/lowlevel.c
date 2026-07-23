@@ -111,8 +111,10 @@ __asm__(
     "    mrs x3, sctlr_el1\n"
     "    orr x3, x3, #1\n"
     "    orr x3, x3, #4\n"
+    "    orr x3, x3, #0x1000\n"
     "    orr x3, x3, #0x800000\n" // enable SPAN if possible
     "    and x3, x3, #(~2)\n"
+    "    and x3, x3, #(~0x80000)\n"
     "    msr sctlr_el1, x3\n"
     "    ic iallu\n"
     "    dsb sy\n"

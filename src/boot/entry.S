@@ -32,8 +32,14 @@ start:
     // instruction and maintains the following ABI on the way in and out:
     // x30 = next-stage binary (iBoot/KPP/XNU)
     //  x0 = argument to next stage
+    //  x1 = sram base (inbound only, nullable and fully-optional pre-A12)
     adr x4, start
-    mov x5, 0x180000000
+
+    // SRAM base is 0x180000000 on all pre-A12 devices, we keep it as default here so compiled pongo has backwards compat.
+    mov x5, #0x800000000
+    movk x5, #0x1800, lsl #16
+    cmp x1, #0
+    csel x5, x1, x5, ne
     cmp x4, x5
     b.eq L_relocated
     // Since we wanna be at the very start of SRAM, we don't need to check the direction of copying
@@ -48,7 +54,10 @@ copyloop:
     cmp x4, x6
     b.lo copyloop
     dsb sy
-    mov x5, 0x180000000
+    mov x5, #0x800000000
+    movk x5, #0x1800, lsl #16
+    cmp x1, #0
+    csel x5, x1, x5, ne
     br x5
 
 L_relocated:

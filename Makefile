@@ -86,11 +86,13 @@ CLANG                       ?= clang
 ifeq ($(HOST_OS),Darwin)
     CC                      ?= $(CLANG)
     EMBEDDED_CC             ?= xcrun -sdk iphoneos clang
+    DSYMUTIL                ?= xcrun dsymutil
     STAT                    ?= stat -L -f %z
 else
 ifeq ($(HOST_OS),Linux)
     CC                      ?= $(CLANG)
     EMBEDDED_CC             ?= $(CLANG)
+    DSYMUTIL                ?= dsymutil
 #   EMBEDDED_LD             ?= lld
 ifndef EMBEDDED_LD
     EMBEDDED_LD             := $(shell which ld64)
@@ -137,10 +139,12 @@ $(BUILD)/Pongo.bin: $(BUILD)/vmacho $(BUILD)/Pongo | $(BUILD)
 	$(BUILD)/vmacho -fM 0x80000 $(BUILD)/Pongo $@
 
 $(BUILD)/Pongo: Makefile $(PONGO_C) $(PONGO_H) $(LIB)/fixup/libc.a | $(BUILD)
-	$(EMBEDDED_CC) -o $@ $(PONGO_C) $(EMBEDDED_CC_FLAGS) $(PONGO_CC_FLAGS)
+	$(EMBEDDED_CC) -o $@ $(PONGO_C) $(EMBEDDED_CC_FLAGS) $(PONGO_CC_FLAGS) -g -Wl,-object_path_lto,$@.lto.o
+	$(DSYMUTIL) $@ -o $@.dSYM
 
 $(BUILD)/checkra1n-kpf-pongo: Makefile $(KPF_C) $(KPF_H) $(PONGO_H) $(LIB)/fixup/libc.a | $(BUILD)
-	$(EMBEDDED_CC) -o $@ $(KPF_C) $(EMBEDDED_CC_FLAGS) $(KPF_CC_FLAGS)
+	$(EMBEDDED_CC) -o $@ $(KPF_C) $(EMBEDDED_CC_FLAGS) $(KPF_CC_FLAGS) -g -Wl,-object_path_lto,$@.lto.o
+	$(DSYMUTIL) $@ -o $@.dSYM
 	strip -x $@
 
 $(BUILD)/vmacho: Makefile $(AUX)/vmacho.c | $(BUILD)
@@ -153,7 +157,7 @@ $(DEP)/Makefile:
 	git submodule update --init --recursive
 
 $(LIB)/fixup/libc.a: always | $(DEP)/Makefile
-	$(MAKE) -C $(DEP) all
+	$(MAKE) -C $(DEP) BUILD=build all
 
 clean:
 	rm -rf $(BUILD)

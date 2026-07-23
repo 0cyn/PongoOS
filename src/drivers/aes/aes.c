@@ -163,6 +163,8 @@ void aes_init(void)
         case 0x8011:
         case 0x8012:
         case 0x8015:
+        case 0x8020:
+        case 0x8030:
             aes_a9_init();
             aes_impl = &aes_a9;
             break;

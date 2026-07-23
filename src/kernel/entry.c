@@ -151,6 +151,8 @@ __attribute__((noinline)) void pongo_entry_cached(void)
     else if(strcmp(soc_name, "t8011") == 0) socnum = 0x8011;
     else if(strcmp(soc_name, "t8012") == 0) socnum = 0x8012;
     else if(strcmp(soc_name, "t8015") == 0) socnum = 0x8015;
+    else if(strcmp(soc_name, "t8020") == 0) socnum = 0x8020;
+    else if(strcmp(soc_name, "t8030") == 0) socnum = 0x8030;
     else if(strcmp(soc_name, "s8000") == 0)
     {
         const char *sgx = dt_get_prop("/arm-io/sgx", "compatible", NULL);
@@ -288,6 +290,7 @@ __attribute__((noinline)) void pongo_entry_cached(void)
 }
 
 extern uint64_t gM1N1Base;
+extern uint8_t start[] __asm__("start");
 
 /*
 
@@ -296,20 +299,23 @@ extern uint64_t gM1N1Base;
 
 */
 extern void set_exception_stack_core0(void);
-extern void lowlevel_set_identity(void);
+extern void lowlevel_set_identity(uint64_t sram_base);
 extern _Noreturn void jump_to_image_extended(void *image, void *args, void *tramp, void *original_image);
 extern uint64_t gPongoSlide;
 
 _Noreturn void pongo_entry(uint64_t *kernel_args, void *entryp, void (*exit_to_el1_image)(void *boot_args, void *boot_entry_point, void *trampoline))
 {
+	// address of start in entry.S
+    volatile uint64_t sram_base = (uint64_t)start;
+
     gBootArgs = (boot_args*)kernel_args;
     gTopOfKernelData = gBootArgs->topOfKernelData;
     gEntryPoint = entryp;
-    lowlevel_setup(gBootArgs->physBase & 0x7ffffffff, gBootArgs->memSize);
+    lowlevel_setup(sram_base, gBootArgs->physBase & 0x7ffffffff, gBootArgs->memSize);
     rebase_pc(gPongoSlide);
     set_exception_stack_core0();
     pongo_entry_cached();
-    lowlevel_set_identity();
+    lowlevel_set_identity(sram_base);
     rebase_pc(-gPongoSlide);
     set_exception_stack_core0();
     gFramebuffer = (uint32_t*)gBootArgs->Video.v_baseAddr;

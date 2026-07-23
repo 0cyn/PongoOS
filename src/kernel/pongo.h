@@ -469,7 +469,7 @@ extern void set_migsts(uint64_t val);
 extern void enable_mmu_el1(uint64_t ttbr0, uint64_t tcr, uint64_t mair, uint64_t ttbr1);
 extern void disable_mmu_el1(void);
 extern void lowlevel_cleanup(void);
-extern void lowlevel_setup(uint64_t phys_off, uint64_t phys_size);
+extern void lowlevel_setup(uint64_t sram_base, uint64_t phys_off, uint64_t phys_size);
 extern void map_full_ram(uint64_t phys_off, uint64_t phys_size);
 extern uint64_t linear_kvm_alloc(uint32_t size);
 extern void _command_register_internal(const char* name, const char* desc, void (*cb)(const char* cmd, char* args), bool hidden);

@@ -36,12 +36,26 @@ static uint64_t gFuseBase;
 
 bool fuse_is_demoted(void)
 {
-    return (FUSE_REG(0) & 0x1) == 0x0;
+    switch (socnum)
+    {
+    case 0x8020:
+    case 0x8030:
+        return (FUSE_REG(0) == 0xa050c030);
+    default:
+        return (FUSE_REG(0) & 0x1) == 0x0;
+    }
 }
 
 bool fuse_is_locked(void)
 {
-    return (FUSE_REG(1) & 0x80000000) != 0x0;
+    switch (socnum)
+    {
+    case 0x8020:
+    case 0x8030:
+        return (FUSE_REG(4) & 0x80000000) != 0x0;
+    default:
+        return (FUSE_REG(1) & 0x80000000) != 0x0;
+    }
 }
 
 bool fuse_demote(void)
@@ -52,13 +66,26 @@ bool fuse_demote(void)
     if(fuse_is_locked())
         return false;
 
-    FUSE_REG(0) &= 0xfffffffe;
+    switch (socnum)
+    {
+    case 0x8020:
+    case 0x8030:
+        FUSE_REG(0) = 0xa050c030;
+    default:
+        FUSE_REG(0) &= 0xfffffffe;
+    }
     return true;
 }
 
 void fuse_lock(void)
 {
-    FUSE_REG(1) |= 0x80000000;
+    switch (socnum)
+    {
+    case 0x8030:
+        FUSE_REG(4) |= 0x80000000;
+    default:
+        FUSE_REG(1) |= 0x80000000;
+    }
 }
 
 struct fuse_command
@@ -92,12 +119,29 @@ static void fuse_cmd_help(const char *cmd, char *args)
 
 static void fuse_cmd_status(const char *cmd, char *args)
 {
-    uint32_t val0 = FUSE_REG(0),
-             val1 = FUSE_REG(1);
-    iprintf("Reg 0: 0x%08x (demoted: %s)\n"
-            "Reg 1: 0x%08x (locked: %s)\n",
-            val0, (val0 & 0x1) == 0x0 ? "yes" : "no",
-            val1, (val1 & 0x80000000) ? "yes" : "no");
+    switch (socnum)
+    {
+    case 0x8020:
+    case 0x8030:
+    {
+        uint32_t fuseReg = FUSE_REG(0),
+                 lockReg = FUSE_REG(4);
+        iprintf("Reg 0: 0x%08x (demoted: %s)\n"
+                "Reg 4: 0x%08x (locked: %s)\n",
+                fuseReg, (fuseReg  == 0xa050c030) ? "yes" : "no",
+                lockReg, (lockReg & 0x80000000) ? "yes" : "no");
+        break;
+    }
+    default:
+    {
+        uint32_t val0 = FUSE_REG(0),
+                 val1 = FUSE_REG(1);
+        iprintf("Reg 0: 0x%08x (demoted: %s)\n"
+                "Reg 1: 0x%08x (locked: %s)\n",
+                val0, (val0 & 0x1) == 0x0 ? "yes" : "no",
+                val1, (val1 & 0x80000000) ? "yes" : "no");
+    }
+    }
 }
 
 static void fuse_cmd_demote(const char *cmd, char *args)
@@ -170,6 +214,11 @@ void fuse_init(void)
 
         case 0x8015:
             gFuseBase = 0x2352bc000;
+            break;
+
+        case 0x8020:
+        case 0x8030:
+            gFuseBase = 0x23d2bc000;
             break;
 
         default:

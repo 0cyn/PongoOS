@@ -25,6 +25,7 @@
  * 
  */
 #include <pongo.h>
+#include <dart/dart.h>
 #include "font8x8_basic.h"
 
 uint32_t* gFramebuffer;
@@ -38,6 +39,7 @@ uint8_t scale_factor;
 uint32_t bannerHeight = 0;
 char overflow_mode = 0;
 uint32_t basecolor = 0x41414141;
+static dart_dev_t *gDisplayDART;
 void screen_fill(uint32_t color) {
     for (int y = 0; y < gHeight; y++) {
         for (int x = 0; x < gWidth; x++) {
@@ -201,7 +203,9 @@ void screen_invert(void) {
     for (int y = 0; y < gHeight; y++) {
         for (int x = 0; x < gWidth; x++) {
             gFramebuffer[x + y * gRowPixels] ^= 0xffffffff;
-            gFramebufferCopy[x + y * gRowPixels] ^= 0xffffffff;
+            if (gFramebufferCopy != gFramebuffer) {
+                gFramebufferCopy[x + y * gRowPixels] ^= 0xffffffff;
+            }
         }
     }
     basecolor ^= 0xffffffff;
@@ -215,21 +219,32 @@ void screen_init(void) {
     uint16_t width = gWidth = gBootArgs->Video.v_width;
     uint16_t height = gHeight = gBootArgs->Video.v_height;
     uint64_t fbbase = gBootArgs->Video.v_baseAddr;
-    uint64_t fbsize = gHeight * gRowPixels * 4;
-    uint64_t fboff;
-    if(is_16k())
-    {
-        fboff  = fbbase & 0x3fffULL;
-        fbsize = (fbsize + fboff + 0x3fffULL) & ~0x3fffULL;
-    }
-    else
-    {
-        fboff  = fbbase & 0xfffULL;
-        fbsize = (fbsize + fboff + 0xfffULL) & ~0xfffULL;
-    }
-    map_range(0xfb0000000ULL, fbbase - fboff, fbsize, 3, 1, true);
+    uint64_t fbsize = (uint64_t)gBootArgs->Video.v_rowBytes * gHeight;
+    uint64_t cpu_page_size = is_16k() ? 0x4000 : 0x1000;
+    uint64_t fboff = fbbase & (cpu_page_size - 1);
+    uint64_t cpu_map_size = (fbsize + fboff + cpu_page_size - 1) &
+                            ~(cpu_page_size - 1);
+    map_range(0xfb0000000ULL, fbbase - fboff, cpu_map_size, 3, 1, true);
     gFramebuffer = (uint32_t*)(0xfb0000000ULL + fboff);
-    gFramebufferCopy = (uint32_t*)alloc_contig(fbsize);
+    gFramebufferCopy = alloc_contig(cpu_map_size);
+    if(!gFramebufferCopy)
+    {
+        panic("display: failed to allocate framebuffer copy");
+    }
+
+    if(socnum == 0x8020 || socnum == 0x8030)
+    {
+        dt_node_t *display = dt_find(gDeviceTree, "/arm-io/disp0");
+        uint64_t dart_start = fbbase & ~0x3fffULL;
+        uint64_t dart_size = (fbsize + (fbbase - dart_start) + 0x3fff) &
+                             ~0x3fffULL;
+        gDisplayDART = dart_init_from_dt(display, 0, false);
+        if(!gDisplayDART || dart_map(gDisplayDART, dart_start, dart_start,
+                                    dart_size) != 0)
+        {
+            panic("display: failed to map framebuffer through DART");
+        }
+    }
 
     height &= 0xfff0;
     scale_factor = 2;
@@ -255,11 +270,11 @@ void screen_init(void) {
             gFramebuffer[ind] = curcolor;
         }
     }
-    
+
     memcpy(gFramebufferCopy, gFramebuffer, fbsize);
 
     basecolor = gFramebuffer[0];
-    cache_clean(gFramebuffer, gHeight * gRowPixels * 4);
+    cache_clean(gFramebuffer, fbsize);
     command_register("fbclear", "clears the framebuffer output (minus banner)", (void*)screen_clear_all);
     command_register("fbinvert", "inverts framebuffer contents", (void*)screen_invert);
     scale_factor = 1;

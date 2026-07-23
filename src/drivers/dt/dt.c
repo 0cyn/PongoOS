@@ -160,6 +160,33 @@ dt_node_t* dt_find(dt_node_t *node, const char *name)
 
 typedef struct
 {
+    uint32_t phandle;
+    dt_node_t *node;
+} dt_find_phandle_cb_t;
+
+static int dt_find_phandle_cb(void *a, dt_node_t *node, int depth,
+                              const char *key, void *val, size_t len)
+{
+    (void)depth;
+    dt_find_phandle_cb_t *arg = a;
+    if((strcmp(key, "AAPL,phandle") == 0 || strcmp(key, "phandle") == 0) &&
+       len == sizeof(arg->phandle) && *(uint32_t *)val == arg->phandle)
+    {
+        arg->node = node;
+        return 1;
+    }
+    return 0;
+}
+
+dt_node_t* dt_find_phandle(dt_node_t *node, uint32_t phandle)
+{
+    dt_find_phandle_cb_t arg = { phandle, NULL };
+    dt_parse(node, 0, NULL, NULL, NULL, &dt_find_phandle_cb, &arg);
+    return arg.node;
+}
+
+typedef struct
+{
     const char *key;
     void *val;
     size_t len;

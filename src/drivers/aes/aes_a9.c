@@ -28,6 +28,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <pongo.h>
+#include <dart/dart.h>
 
 #include "aes.h"
 #include "aes_private.h"
@@ -54,7 +55,10 @@ enum
 
 static uintptr_t gAESBase;
 static uintptr_t gAESPipeBase;
+static dt_node_t *gAESDev;
 static uint64_t gAESClockAddr;
+
+#define AES_DART_PAGE_SIZE 0x4000
 
 #define rAES_CTL    *(volatile uint32_t*)(gAESBase + 0x008)
 #define rAES_INT    *(volatile uint32_t*)(gAESBase + 0x018)
@@ -62,7 +66,8 @@ static uint64_t gAESClockAddr;
 
 void aes_a9_init(void)
 {
-    gAESBase = gIOBase + dt_get_u64("/arm-io/aes", "reg", 0);
+    gAESDev = dt_get("/arm-io/aes");
+    gAESBase = gIOBase + dt_node_u64(gAESDev, "reg", 0);
     gAESPipeBase = gAESBase + 0x200;
     switch(socnum)
     {
@@ -85,6 +90,12 @@ void aes_a9_init(void)
             break;
         case 0x8015:
             gAESClockAddr = gIOBase + 0x32080240;
+            break;
+		case 0x8020:
+			gAESClockAddr = gIOBase + 0x3b080228;
+    		break;
+        case 0x8030:
+            gAESClockAddr = gIOBase + 0x3b0801d8;
             break;
         default:
             panic("AES A9: counterfeit init call");
@@ -136,6 +147,66 @@ int aes_a9(uint32_t op, const void *src, void *dst, size_t len, const void *iv, 
     uint32_t op_key = AES_OP_KEY | (keyid << 24) | (bits << 22) | (encrypt << 20) | (mode << 16);
 
     clock_gate(gAESClockAddr, 1);
+
+    dart_dev_t *dart = NULL;
+    uintptr_t map1_iova = 0,
+              map1_paddr = 0,
+              map2_iova = 0,
+              map2_paddr = 0;
+    size_t map1_len = 0,
+           map2_len = 0;
+    if(socnum == 0x8020 || socnum == 0x8030)
+    {
+        dart = dart_init_from_dt(gAESDev, 0, false);
+        if(!dart)
+        {
+            clock_gate(gAESClockAddr, 0);
+            return EFAULT;
+        }
+
+        if(len)
+        {
+            uintptr_t src_iova = (uint32_t)src_addr,
+                      dst_iova = (uint32_t)dst_addr,
+                      src_start = src_iova & ~(AES_DART_PAGE_SIZE - 1),
+                      src_end = (src_iova + len + AES_DART_PAGE_SIZE - 1) &
+                                ~(AES_DART_PAGE_SIZE - 1),
+                      dst_start = dst_iova & ~(AES_DART_PAGE_SIZE - 1),
+                      dst_end = (dst_iova + len + AES_DART_PAGE_SIZE - 1) &
+                                ~(AES_DART_PAGE_SIZE - 1),
+                      src_paddr = src_addr & ~(AES_DART_PAGE_SIZE - 1),
+                      dst_paddr = dst_addr & ~(AES_DART_PAGE_SIZE - 1);
+
+            if(src_start < dst_end && dst_start < src_end)
+            {
+                map1_iova = src_start < dst_start ? src_start : dst_start;
+                map1_paddr = src_paddr < dst_paddr ? src_paddr : dst_paddr;
+                uintptr_t map_end = src_end > dst_end ? src_end : dst_end;
+                map1_len = map_end - map1_iova;
+            }
+            else
+            {
+                map1_iova = src_start;
+                map1_paddr = src_paddr;
+                map1_len = src_end - src_start;
+                map2_iova = dst_start;
+                map2_paddr = dst_paddr;
+                map2_len = dst_end - dst_start;
+            }
+
+            if(dart_map(dart, map1_iova, map1_paddr, map1_len) != 0 ||
+               (map2_len && dart_map(dart, map2_iova, map2_paddr, map2_len) != 0))
+            {
+                if(map1_len)
+                {
+                    dart_unmap(dart, map1_iova, map1_len);
+                }
+                dart_shutdown(dart);
+                clock_gate(gAESClockAddr, 0);
+                return EFAULT;
+            }
+        }
+    }
 
     cache_clean((void*)src, len);
     if(src_addr != dst_addr)
@@ -197,15 +268,42 @@ int aes_a9(uint32_t op, const void *src, void *dst, size_t len, const void *iv, 
     rAES_PIPE = AES_OP_FLAGS | AES_FLAG_STOP | AES_FLAG_INT;
 
     // Wait for completion
-    while((rAES_INT & 0x20) == 0) {}
+    int result = 0;
+    while((rAES_INT & 0x20) == 0)
+    {
+        uint32_t error = dart_get_error(dart);
+        if(error & 0x80000000)
+        {
+            iprintf("AES: SIO DART fault 0x%08x at 0x%llx\n", error,
+                    dart_get_error_address(dart));
+            result = EIO;
+            break;
+        }
+    }
     rAES_INT = 0x20;
 
-    cache_invalidate(dst, len);
+    if(result == 0)
+    {
+        cache_invalidate(dst, len);
+    }
 
     // End block
     rAES_CTL = AES_BLOCK_STOP;
 
+    if(dart)
+    {
+        if(map1_len)
+        {
+            dart_unmap(dart, map1_iova, map1_len);
+        }
+        if(map2_len)
+        {
+            dart_unmap(dart, map2_iova, map2_len);
+        }
+        dart_shutdown(dart);
+    }
+
     clock_gate(gAESClockAddr, 0);
 
-    return 0;
+    return result;
 }

@@ -132,6 +132,30 @@ static const soccfg_t soccfg[] =
         .aes = 0x2352d0000,
         .iorvbar = (uint64_t[]){ 0x208450000, 0x208550000, 0x208050000, 0x208150000, 0x208250000, 0x208350000, 0 },
     },
+    {
+        .soc = 0x8020,
+        .aop_cfg_table       = (volatile uint32_t*)0x23d2c0200,
+        .aop_sram_base       = NULL,
+        .aop_cfg_lock        = (volatile uint32_t*)0x23d2c0214,
+        .aop_sram_lock_range = (volatile uint32_t*)0x23d000200,
+        .aop_sram_lock_set   = (volatile uint32_t*)0x23d000204,
+        .recfg_base = 0x23df00000,
+        .recfg_end  = 0x23df10000,
+        .aes = 0x23d2d0000,
+        .iorvbar = (uint64_t[]){ 0x211050000, 0x211150000, 0x210050000, 0x210150000, 0x210250000, 0x210350000, 0 },
+    },
+    {
+        .soc = 0x8030,
+        .aop_cfg_table       = (volatile uint32_t*)0x23d2c0200,
+        .aop_sram_base       = NULL,
+        .aop_cfg_lock        = (volatile uint32_t*)0x23d2c0214,
+        .aop_sram_lock_range = (volatile uint32_t*)0x23d000200,
+        .aop_sram_lock_set   = (volatile uint32_t*)0x23d000204,
+        .recfg_base = 0x23df00000,
+        .recfg_end  = 0x23df10000,
+        .aes = 0x23d2d0000,
+        .iorvbar = (uint64_t[]){ 0x211050000, 0x211150000, 0x210050000, 0x210150000, 0x210250000, 0x210350000, 0 },
+    }
 };
 
 static const soccfg_t *gCFG;

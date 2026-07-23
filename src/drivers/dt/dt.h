@@ -51,6 +51,7 @@ typedef struct
 extern int dt_check(void *mem, size_t size, size_t *offp) __asm__("_dt_check$64");
 extern int dt_parse(dt_node_t *node, int depth, size_t *offp, int (*cb_node)(void*, dt_node_t*, int), void *cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, size_t), void *cbp_arg) __asm__("_dt_parse$64");
 extern dt_node_t* dt_find(dt_node_t *node, const char *name);
+extern dt_node_t* dt_find_phandle(dt_node_t *node, uint32_t phandle);
 extern void* dt_prop(dt_node_t *node, const char *key, size_t *lenp) __asm__("_dt_prop$64");
 extern int dt_print(dt_node_t *node, int argc, const char **argv);
 

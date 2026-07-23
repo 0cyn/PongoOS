@@ -22,10 +22,14 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <pongo.h>
+#include <dart/dart.h>
 uint64_t gSynopsysBase;
 uint64_t gSynopsysOTGBase;
 uint64_t gSynopsysComplexBase;
 uint32_t gSynopsysCoreVersion;
+static dart_dev_t *gUSBDART;
+static uintptr_t gUSBDARTDefaultIOVA;
+static size_t gUSBDARTDefaultSize;
 struct _reg { uint32_t off; };
 #define SYNOPSYS_OTG_REGISTER(_x) ((struct _reg) { _x })
 #include "synopsys_otg_regs.h"
@@ -520,6 +524,40 @@ ep0_setup_stage(struct setup_packet *setup) {
 // transaction. Otherwise, the default is that we always expect a SETUP packet.
 #define RECV_DATA       0x1
 
+#define USB_DART_PAGE_SIZE 0x4000
+
+static int usb_dart_map_buffer(void *data, uint32_t dma, uint32_t size,
+                               uintptr_t *map_iova, size_t *map_size)
+{
+    *map_iova = 0;
+    *map_size = 0;
+    if(!gUSBDART)
+    {
+        return 0;
+    }
+
+    uintptr_t paddr = vatophys((uint64_t)data);
+    uint64_t iova_end = (uint64_t)dma + size;
+    if(!size || iova_end > (1ULL << 32) || (uint32_t)paddr != dma ||
+       (paddr & (USB_DART_PAGE_SIZE - 1)) !=
+           (dma & (USB_DART_PAGE_SIZE - 1)))
+    {
+        return -1;
+    }
+
+    uintptr_t iova_start = dma & ~(USB_DART_PAGE_SIZE - 1);
+    uintptr_t paddr_start = paddr & ~(USB_DART_PAGE_SIZE - 1);
+    size_t length = ((size_t)(dma & (USB_DART_PAGE_SIZE - 1)) + size +
+                     USB_DART_PAGE_SIZE - 1) & ~(USB_DART_PAGE_SIZE - 1);
+    if(dart_map(gUSBDART, iova_start, paddr_start, length) != 0)
+    {
+        return -1;
+    }
+    *map_iova = iova_start;
+    *map_size = length;
+    return 0;
+}
+
 // State for managing data transfer over an endpoint.
 struct endpoint_state {
     // -- Endpoint info --
@@ -571,6 +609,10 @@ struct endpoint_state {
     uint32_t xfer_dma_size;
     // The physical address of the DMA buffer.
     uint32_t xfer_dma_phys;
+    // DART mapping owned by a direct-DMA transfer. The default buffers share
+    // one persistent mapping instead.
+    uintptr_t dart_map_iova;
+    size_t dart_map_size;
 
     // -- Transfer state --
     //
@@ -605,6 +647,16 @@ static struct endpoint_state ep0_in;
 static struct endpoint_state ep0_out;
 static struct endpoint_state ep1_in;
 static struct endpoint_state ep2_out;
+
+static void usb_dart_unmap_endpoint(struct endpoint_state *ep)
+{
+    if(gUSBDART && ep->dart_map_size)
+    {
+        dart_unmap(gUSBDART, ep->dart_map_iova, ep->dart_map_size);
+        ep->dart_map_iova = 0;
+        ep->dart_map_size = 0;
+    }
+}
 
 // ---- Low-level transfer API for IN endpoints ---------------------------------------------------
 
@@ -999,6 +1051,11 @@ ep_out_recv_data_dma(struct endpoint_state *ep, void *data, uint32_t dma, uint32
             || size == 0 || (size % ep->max_packet_size) != 0) {
         BUG(0x73656e642035);    // 'recv 5'
     }
+    if(ep->dart_map_size ||
+       usb_dart_map_buffer(data, dma, size, &ep->dart_map_iova,
+                           &ep->dart_map_size) != 0) {
+        panic("USB: failed to map direct DMA buffer");
+    }
     ep->xfer_dma_data = data;
     ep->xfer_dma_size = size;
     ep->xfer_dma_phys = dma;
@@ -1210,6 +1267,7 @@ ep_out_abort(struct endpoint_state *ep) {
         reg_or(rDCTL, 0x400);
     }
     reg_write(rDOEPINT(ep->n), reg_read(rDOEPINT(ep->n)));
+    usb_dart_unmap_endpoint(ep);
 }
 
 __attribute__((used)) static void
@@ -1710,6 +1768,7 @@ ep2_out_interrupt(void) {
             // since transfer_done() might itself register another transfer.
             void (*out_transfer_done)(void *, uint32_t, uint32_t) = ep2.out_transfer_done;
             ep2.out_transfer_done = NULL;
+            usb_dart_unmap_endpoint(&ep2_out);
             out_transfer_done(ep2_out.transfer_data, ep2_out.transfer_size,
                     ep2_out.transferred);
         }
@@ -1815,11 +1874,55 @@ void usb_main(void) {
 
 static uint64_t reg1=0, reg2=0, reg3=0;
 
+static bool usb_phy_cfg(dt_node_t *phy, uint32_t *cfg0, uint32_t *cfg1)
+{
+    size_t sz0 = 0, sz1 = 0;
+    uint32_t *v0 = dt_prop(phy, "cfg0-device", &sz0);
+    uint32_t *v1 = dt_prop(phy, "cfg1-device", &sz1);
+    if(v0 && v1 && sz0 >= sizeof(*v0) && sz1 >= sizeof(*v1))
+    {
+        *cfg0 = v0[0];
+        *cfg1 = v1[0];
+        return true;
+    }
+
+    size_t sz = 0;
+    uint32_t *tunable = dt_prop(phy, "tunable-device", &sz);
+    if(!tunable || (sz % (4 * sizeof(*tunable))) != 0)
+    {
+        return false;
+    }
+
+    bool got0 = false, got1 = false;
+    for(size_t i = 0, max = sz / sizeof(*tunable); i < max; i += 4)
+    {
+        if(tunable[i] != 1)
+        {
+            continue;
+        }
+        if(tunable[i + 1] == 0x8)
+        {
+            *cfg0 = tunable[i + 3];
+            got0 = true;
+        }
+        else if(tunable[i + 1] == 0xc)
+        {
+            *cfg1 = tunable[i + 3];
+            got1 = true;
+        }
+    }
+
+    return got0 && got1;
+}
+
 static void usb_bringup(dt_node_t *otgphyctrl)
 {
     // Get these before we touch HW
-    uint32_t cfg0 = dt_node_u32(otgphyctrl, "cfg0-device", 0);
-    uint32_t cfg1 = dt_node_u32(otgphyctrl, "cfg1-device", 0);
+    uint32_t cfg0 = 0, cfg1 = 0;
+    if(!usb_phy_cfg(otgphyctrl, &cfg0, &cfg1))
+    {
+        panic("Failed to resolve USB PHY cfg");
+    }
 
     clock_gate(reg1, 0);
     clock_gate(reg2, 0);
@@ -1837,7 +1940,13 @@ static void usb_bringup(dt_node_t *otgphyctrl)
             break;
 
         case 0x8015:
+        case 0x8020:
             *(volatile uint32_t*)(gSynopsysComplexBase + 0x00) = 1;
+            *(volatile uint32_t*)(gSynopsysComplexBase + 0x48) = 0x3000088;
+            break;
+
+        case 0x8030:
+            *(volatile uint32_t*)(gSynopsysComplexBase + 0x00) = 0; // sic
             *(volatile uint32_t*)(gSynopsysComplexBase + 0x48) = 0x3000088;
             break;
 
@@ -1866,7 +1975,17 @@ void usb_init(void)
     string_descriptors[iSerialNumber] = srnm;
 
     gSynopsysOTGBase = 0;
-    dt_node_t *otgphyctrl = dt_get("/arm-io/otgphyctrl");
+    bool atc_phy = false;
+    dt_node_t *otgphyctrl = dt_find(gDeviceTree, "/arm-io/otgphyctrl");
+    if(!otgphyctrl)
+    {
+        otgphyctrl = dt_find(gDeviceTree, "/arm-io/atc-phy");
+        atc_phy = otgphyctrl != NULL;
+    }
+    if(!otgphyctrl)
+    {
+        panic("Missing DeviceTree node: /arm-io/otgphyctrl or /arm-io/atc-phy");
+    }
     size_t sz = 0;
     uint64_t *reg = dt_node_prop(otgphyctrl, "reg", &sz);
     for(uint32_t i = 0, max = sz / 0x10; i < max; ++i)
@@ -1889,6 +2008,10 @@ void usb_init(void)
     if(usbComplex)
     {
         gSynopsysComplexBase = gIOBase + dt_node_u64(usbComplex, "reg", 0);
+    }
+    else if(atc_phy)
+    {
+        gSynopsysComplexBase = gIOBase + dt_node_u64(otgphyctrl, "reg", 0);
     }
     else if(socnum == 0x8960)
     {
@@ -1922,6 +2045,31 @@ void usb_init(void)
     usb_irq_mode = 1;
     usb_usbtask_handoff_mode = 0;
     usb_bringup(otgphyctrl);
+    if(socnum == 0x8020 || socnum == 0x8030)
+    {
+        dt_node_t *dart_node = dt_find(gDeviceTree, "/arm-io/dart-usb");
+        dt_node_t *mapper = dart_node ? dt_find(dart_node, "mapper-usb-device") : NULL;
+        if(!mapper && dart_node)
+        {
+            mapper = dt_find(dart_node, "mapper-usbdev");
+        }
+        size_t reg_len = 0;
+        uint64_t *reg = dart_node ? dt_prop(dart_node, "reg", &reg_len) : NULL;
+        uint32_t reg_count = reg ? reg_len / (2 * sizeof(*reg)) : 0;
+        if(reg_count)
+        {
+            gUSBDART = dart_init_from_dt_mapper(mapper, reg_count - 1, false);
+        }
+    }
+    if((socnum == 0x8020 || socnum == 0x8030) &&
+       (!gUSBDART || usb_dart_map_buffer((void *)dma_page_v,
+                                        (uint32_t)dma_page_p,
+                                        4 * DMA_BUFFER_SIZE,
+                                        &gUSBDARTDefaultIOVA,
+                                        &gUSBDARTDefaultSize) != 0))
+    {
+        panic("USB: failed to map default DMA buffers");
+    }
 
     gSynopsysCoreVersion = reg_read(rGSNPSID) & 0xffff;
     USB_DEBUG(USB_DEBUG_STANDARD, "gSynopsysCoreVersion: 0x%x", gSynopsysCoreVersion);
@@ -1939,9 +2087,6 @@ void usb_init(void)
     reg_write(rGINTMSK, 0x1000);
     reg_and(rDCTL, ~0x2);
 
-    ep_out_activate(&ep0_out, 0, 0, EP0_MAX_PACKET_SIZE);
-    ep_in_activate(&ep0_in, 0, 0, EP0_MAX_PACKET_SIZE, 0);
-
     ep0_out.default_xfer_dma_data = (void *)   (dma_page_v + 0 * DMA_BUFFER_SIZE);
     ep0_out.default_xfer_dma_phys = (uint32_t) (dma_page_p + 0 * DMA_BUFFER_SIZE);
     ep0_out.default_xfer_dma_size = DMA_BUFFER_SIZE;
@@ -1954,6 +2099,9 @@ void usb_init(void)
     ep2_out.default_xfer_dma_data = (void *)   (dma_page_v + 3 * DMA_BUFFER_SIZE);
     ep2_out.default_xfer_dma_phys = (uint32_t) (dma_page_p + 3 * DMA_BUFFER_SIZE);
     ep2_out.default_xfer_dma_size = DMA_BUFFER_SIZE;
+
+    ep_out_activate(&ep0_out, 0, 0, EP0_MAX_PACKET_SIZE);
+    ep_in_activate(&ep0_in, 0, 0, EP0_MAX_PACKET_SIZE, 0);
 
     *(volatile uint32_t*)(gSynopsysOTGBase + 0x4) |= 2;
 
@@ -1993,5 +2141,17 @@ void usb_teardown(void)
     } else {
         usb_reap();
         enable_interrupts();
+    }
+    if(gUSBDART)
+    {
+        disable_interrupts();
+        if(gUSBDARTDefaultSize)
+        {
+            dart_unmap(gUSBDART, gUSBDARTDefaultIOVA, gUSBDARTDefaultSize);
+            gUSBDARTDefaultIOVA = 0;
+            gUSBDARTDefaultSize = 0;
+        }
+        dart_shutdown(gUSBDART);
+        gUSBDART = NULL;
     }
 }
