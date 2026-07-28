@@ -1289,6 +1289,8 @@ void sep_setup(void)
     		if (ints[i] == IRQ_T8015_SEP_INBOX_NOT_EMPTY)
     			continue;
     		break;
+    	case 0x8020:
+    		continue; // Every single irq fires constantly on t8020.
     	case 0x8030:
     		if (ints[i] == IRQ_T8030_SEP_INBOX_NOT_EMPTY)
     			continue;

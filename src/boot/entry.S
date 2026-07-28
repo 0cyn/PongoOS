@@ -30,12 +30,16 @@
 start:
     // Since version 2.6.0, Pongo lives in SRAM, is always invoked at the first
     // instruction and maintains the following ABI on the way in and out:
-    // x30 = next-stage binary (iBoot/KPP/XNU)
-    //  x0 = argument to next stage
-    //  x1 = sram base (inbound only, nullable and fully-optional pre-A12)
+    // x30     = next-stage binary (iBoot/KPP/XNU)
+    //  x0     = argument to next stage
+    //  sp_el1 = sram base (inbound only, nullable and fully-optional pre-A12)
+    msr spsel, #1
+    mov x1, sp
+    and sp, xzr, #1
     adr x4, start
 
     // SRAM base is 0x180000000 on all pre-A12 devices, we keep it as default here so compiled pongo has backwards compat.
+    // If x1 at this point is nonzero, we will use it as our relocation target instead.
     mov x5, #0x800000000
     movk x5, #0x1800, lsl #16
     cmp x1, #0
