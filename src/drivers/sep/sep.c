@@ -508,8 +508,7 @@ static void sep_pwned_boot_auto(void) {
             bpr = 0x2352d0030;
             break;
         case 0x8020:
-            bpr = 0x23d2d0030;
-            break;
+		case 0x8027:
         case 0x8030:
             bpr = 0x23d2d0030;
             break;
@@ -1179,6 +1178,7 @@ void sep_auto(const char* cmd, char* args)
             iprintf("No need to pwn SEP, just booting...\n");
         case 0x8015: // Lowkey skip the message :|
         case 0x8020:
+        case 0x8027:
         case 0x8030:
             tz_lockdown();
             seprom_boot_tz0();
@@ -1242,7 +1242,9 @@ void sep_setup(void)
 {
     gSEPDev = dt_get("/arm-io/sep");
 
-    if(socnum == 0x8020 || socnum == 0x8030)
+    if(socnum == 0x8020
+    	|| socnum == 0x8027
+    	|| socnum == 0x8030)
     {
         gSEPDART = dart_init_from_dt(gSEPDev, 0, false);
         if(!gSEPDART)
@@ -1268,7 +1270,10 @@ void sep_setup(void)
     if(len < 16) panic("sep_setup: sep reg prop too short");
 
     uint64_t sep_reg_u = reg[0] + gIOBase;
-    if (socnum == 0x8015 || socnum == 0x8020 || socnum == 0x8030) {
+    if (socnum == 0x8015
+    	|| socnum == 0x8020
+    	|| socnum == 0x8027
+    	|| socnum == 0x8030) {
         mailboxregs64 = (volatile struct mailbox_registers64 *)(sep_reg_u + 0x8100);
         is_sep64 = 1;
     } else {
@@ -1294,6 +1299,8 @@ void sep_setup(void)
     	case 0x8030:
     		if (ints[i] == IRQ_T8030_SEP_INBOX_NOT_EMPTY)
     			continue;
+    		break;
+    	default:
     		break;
     	}
 

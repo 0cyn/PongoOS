@@ -1945,6 +1945,7 @@ static void usb_bringup(dt_node_t *otgphyctrl)
             *(volatile uint32_t*)(gSynopsysComplexBase + 0x48) = 0x3000088;
             break;
 
+        case 0x8027:
         case 0x8030:
             *(volatile uint32_t*)(gSynopsysComplexBase + 0x00) = 0; // sic
             *(volatile uint32_t*)(gSynopsysComplexBase + 0x48) = 0x3000088;
@@ -2045,7 +2046,7 @@ void usb_init(void)
     usb_irq_mode = 1;
     usb_usbtask_handoff_mode = 0;
     usb_bringup(otgphyctrl);
-    if(socnum == 0x8020 || socnum == 0x8030)
+    if(socnum == 0x8020 || socnum == 0x8027 || socnum == 0x8030)
     {
         dt_node_t *dart_node = dt_find(gDeviceTree, "/arm-io/dart-usb");
         dt_node_t *mapper = dart_node ? dt_find(dart_node, "mapper-usb-device") : NULL;
@@ -2061,7 +2062,7 @@ void usb_init(void)
             gUSBDART = dart_init_from_dt_mapper(mapper, reg_count - 1, false);
         }
     }
-    if((socnum == 0x8020 || socnum == 0x8030) &&
+    if((socnum == 0x8020 || socnum == 0x8027 || socnum == 0x8030) &&
        (!gUSBDART || usb_dart_map_buffer((void *)dma_page_v,
                                         (uint32_t)dma_page_p,
                                         4 * DMA_BUFFER_SIZE,

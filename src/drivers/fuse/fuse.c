@@ -39,6 +39,7 @@ bool fuse_is_demoted(void)
     switch (socnum)
     {
     case 0x8020:
+    case 0x8027:
     case 0x8030:
         return (FUSE_REG(0) == 0xa050c030);
     default:
@@ -51,6 +52,7 @@ bool fuse_is_locked(void)
     switch (socnum)
     {
     case 0x8020:
+    case 0x8027:
     case 0x8030:
         return (FUSE_REG(4) & 0x80000000) != 0x0;
     default:
@@ -69,6 +71,7 @@ bool fuse_demote(void)
     switch (socnum)
     {
     case 0x8020:
+    case 0x8027:
     case 0x8030:
         FUSE_REG(0) = 0xa050c030;
     default:
@@ -81,6 +84,8 @@ void fuse_lock(void)
 {
     switch (socnum)
     {
+    case 0x8020:
+    case 0x8027:
     case 0x8030:
         FUSE_REG(4) |= 0x80000000;
     default:
@@ -122,6 +127,7 @@ static void fuse_cmd_status(const char *cmd, char *args)
     switch (socnum)
     {
     case 0x8020:
+    case 0x8027:
     case 0x8030:
     {
         uint32_t fuseReg = FUSE_REG(0),
@@ -217,6 +223,7 @@ void fuse_init(void)
             break;
 
         case 0x8020:
+        case 0x8027:
         case 0x8030:
             gFuseBase = 0x23d2bc000;
             break;

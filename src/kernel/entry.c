@@ -152,6 +152,7 @@ __attribute__((noinline)) void pongo_entry_cached(void)
     else if(strcmp(soc_name, "t8012") == 0) socnum = 0x8012;
     else if(strcmp(soc_name, "t8015") == 0) socnum = 0x8015;
     else if(strcmp(soc_name, "t8020") == 0) socnum = 0x8020;
+    else if(strcmp(soc_name, "t8027") == 0) socnum = 0x8027;
     else if(strcmp(soc_name, "t8030") == 0) socnum = 0x8030;
     else if(strcmp(soc_name, "s8000") == 0)
     {

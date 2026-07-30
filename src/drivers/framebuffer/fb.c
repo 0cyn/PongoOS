@@ -232,7 +232,9 @@ void screen_init(void) {
         panic("display: failed to allocate framebuffer copy");
     }
 
-    if(socnum == 0x8020 || socnum == 0x8030)
+    if(socnum == 0x8020
+    	|| socnum == 0x8027
+    	|| socnum == 0x8030)
     {
         dt_node_t *display = dt_find(gDeviceTree, "/arm-io/disp0");
         uint64_t dart_start = fbbase & ~0x3fffULL;

@@ -94,6 +94,9 @@ void aes_a9_init(void)
 		case 0x8020:
 			gAESClockAddr = gIOBase + 0x3b080228;
     		break;
+		case 0x8027:
+			gAESClockAddr = gIOBase + 0x3b080238;
+    		break;
         case 0x8030:
             gAESClockAddr = gIOBase + 0x3b0801d8;
             break;
@@ -155,7 +158,9 @@ int aes_a9(uint32_t op, const void *src, void *dst, size_t len, const void *iv, 
               map2_paddr = 0;
     size_t map1_len = 0,
            map2_len = 0;
-    if(socnum == 0x8020 || socnum == 0x8030)
+    if (socnum == 0x8020
+    	|| socnum == 0x8027
+    	|| socnum == 0x8030)
     {
         dart = dart_init_from_dt(gAESDev, 0, false);
         if(!dart)
@@ -271,14 +276,17 @@ int aes_a9(uint32_t op, const void *src, void *dst, size_t len, const void *iv, 
     int result = 0;
     while((rAES_INT & 0x20) == 0)
     {
-        uint32_t error = dart_get_error(dart);
-        if(error & 0x80000000)
-        {
-            iprintf("AES: SIO DART fault 0x%08x at 0x%llx\n", error,
-                    dart_get_error_address(dart));
-            result = EIO;
-            break;
-        }
+    	if (dart)
+    	{
+    		uint32_t error = dart_get_error(dart);
+    		if(error & 0x80000000)
+    		{
+    			iprintf("AES: SIO DART fault 0x%08x at 0x%llx\n", error,
+						dart_get_error_address(dart));
+    			result = EIO;
+    			break;
+    		}
+    	}
     }
     rAES_INT = 0x20;
 
